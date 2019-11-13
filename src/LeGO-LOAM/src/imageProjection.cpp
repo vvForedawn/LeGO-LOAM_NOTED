@@ -164,18 +164,23 @@ public:
     }
     
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){
-
+        // 点云复制
         copyPointCloud(laserCloudMsg);
+        // 寻找始末角度
         findStartEndAngle();
+        // 点云投影
         projectPointCloud();
+        // 地面检测
         groundRemoval();
+        // 点云分割与发布
         cloudSegmentation();
         publishCloud();
+        // 重置参数
         resetParameters();
     }
 
     void findStartEndAngle(){
-        // 雷达坐标系：右->X,前->Y,上->Z
+        // 雷达坐标系：右->X,前->Y,上->Z  和右手定则相反
         // 雷达内部旋转扫描方向：Z轴俯视下来，顺时针方向（Z轴右手定则反向）
 
         // atan2(y,x)函数的返回值范围(-PI,PI],表示与复数x+yi的幅角
@@ -196,7 +201,7 @@ public:
             segMsg.endOrientation -= 2 * M_PI;
         } else if (segMsg.endOrientation - segMsg.startOrientation < M_PI)
             segMsg.endOrientation += 2 * M_PI;
-		// segMsg.orientationDiff的范围为(PI,3PI),一圈大小为2PI，应该在2PI左右
+		// segMsg.orientationDiff的范围为(PI,3PI),一圈大小为2PI，应该在2PI左右 为什么是PI到3PI
         segMsg.orientationDiff = segMsg.endOrientation - segMsg.startOrientation;
     }
 
@@ -224,7 +229,7 @@ public:
 
             // atan2(y,x)函数的返回值范围(-PI,PI],表示与复数x+yi的幅角
             // 下方角度atan2(..)交换了x和y的位置，计算的是与y轴正方向的夹角大小(关于y=x做对称变换)
-            // 这里是在雷达坐标系，所以是与正前方的夹角大小
+            // 这里是在雷达坐标系，所以是与正前方的夹角大小   apha
             horizonAngle = atan2(thisPoint.x, thisPoint.y) * 180 / M_PI;
 
 			// round函数进行四舍五入取整
@@ -266,7 +271,7 @@ public:
 
             index = columnIdn  + rowIdn * Horizon_SCAN;
             fullCloud->points[index] = thisPoint;
-
+            //intensity是距离信息
             fullInfoCloud->points[index].intensity = range;
         }
     }

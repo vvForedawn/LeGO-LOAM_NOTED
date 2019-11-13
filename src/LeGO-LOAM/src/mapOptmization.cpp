@@ -807,7 +807,7 @@ public:
         std::vector<int> pointSearchIndLoop;
         std::vector<float> pointSearchSqDisLoop;
         kdtreeHistoryKeyPoses->setInputCloud(cloudKeyPoses3D);
-        // 进行半径historyKeyframeSearchRadius内的邻域搜索，
+        // 进行半径historyKeyframeSearchRadius内的邻域搜索，  5米
         // currentRobotPosPoint：需要查询的点，
         // pointSearchIndLoop：搜索完的邻域点对应的索引
         // pointSearchSqDisLoop：搜索完的每个邻域点与当前点之间的欧式距离
@@ -1018,7 +1018,8 @@ public:
             // 
             surroundingKeyPoses->clear();
             surroundingKeyPosesDS->clear();
-
+            //cloudKeyPoses3D虽说是点云，但是是为了保存机器人在建图过程中的轨迹，
+            //其中的点就是定周期采样的轨迹点，这一点是在saveKeyFramesAndFactor中计算出的，在第一帧时必然是空的
 			kdtreeSurroundingKeyPoses->setInputCloud(cloudKeyPoses3D);
 
             // 进行半径surroundingKeyframeSearchRadius内的邻域搜索，
@@ -1026,6 +1027,9 @@ public:
             // pointSearchInd：搜索完的邻域点对应的索引
             // pointSearchSqDis：搜索完的每个领域点点与传讯点之间的欧式距离
             // 0：返回的邻域个数，为0表示返回全部的邻域点
+
+            //surroundingKeyframeSearchRadius是50米，也就是说是在当前位置进行半径查找，得到附近的轨迹点
+            //距离数据保存在pointSearchSqDis中
 			kdtreeSurroundingKeyPoses->radiusSearch(currentRobotPosPoint, (double)surroundingKeyframeSearchRadius, pointSearchInd, pointSearchSqDis, 0);
 			for (int i = 0; i < pointSearchInd.size(); ++i)
                 surroundingKeyPoses->points.push_back(cloudKeyPoses3D->points[pointSearchInd[i]]);
@@ -1038,6 +1042,9 @@ public:
                 for (int j = 0; j < numSurroundingPosesDS; ++j){
                     // 双重循环，不断对比surroundingExistingKeyPosesID[i]和surroundingKeyPosesDS的点的index
                     // 如果能够找到一样的，说明存在相同的关键点(因为surroundingKeyPosesDS从cloudKeyPoses3D中筛选而来)
+                    //在这里我们可以看到points的intensity参数在saveKeyFramesAndFactor函数中计算，
+                    //它代表cloudKeyPoses3D这个点云的点数量，点云intensity参数在代码里真心被玩坏了
+                    //也就是说，这个等式的意义是判断附近某一个关键帧等于降维后点云的第j个关键帧
                     if (surroundingExistingKeyPosesID[i] == (int)surroundingKeyPosesDS->points[j].intensity){
                         existingFlag = true;
                         break;
@@ -1484,7 +1491,7 @@ public:
         }
     }
 
-
+    // 保存轨迹与位姿图就是为了回环检测
     void saveKeyFramesAndFactor(){
 
         currentRobotPosPoint.x = transformAftMapped[3];
@@ -1643,22 +1650,22 @@ public:
             newLaserCloudCornerLast = false; newLaserCloudSurfLast = false; newLaserCloudOutlierLast = false; newLaserOdometry = false;
 
             std::lock_guard<std::mutex> lock(mtx);
-
+            //mappingProcessInterval是0.3秒，以相对较慢的速度进行建图
             if (timeLaserOdometry - timeLastProcessing >= mappingProcessInterval) {
 
                 timeLastProcessing = timeLaserOdometry;
-
+                //把点云坐标均转换到世界坐标系下
                 transformAssociateToMap();
-
+                //由于帧数的频率大于建图的频率，因此需要提取关键帧进行匹配
                 extractSurroundingKeyFrames();
-
+                //降采样匹配以及增加地图点云，回环检测
                 downsampleCurrentScan();
 
                 // 当前扫描进行边缘优化，图优化以及进行LM优化的过程
                 scan2MapOptimization();
 
                 saveKeyFramesAndFactor();
-
+                //回环检测成功后将位姿图的数据依次更新。之后是发布TF变换等一些善后工作。
                 correctPoses();
 
                 publishTF();
@@ -1683,7 +1690,8 @@ int main(int argc, char** argv)
     // std::thread 构造函数，将MO作为参数传入构造的线程中使用
     // 进行闭环检测与闭环的功能
     std::thread loopthread(&mapOptimization::loopClosureThread, &MO);
-	
+	// ①visualizeGlobalMapThread是以0.2Hz的频率发布地图点云，它对地图点云进行了两次降维，
+    // 并且将角点、平面点、异常点均加入到最终的地图点云中发布。
     // 该线程中进行的工作是publishGlobalMap(),将数据发布到ros中，可视化
     std::thread visualizeMapThread(&mapOptimization::visualizeGlobalMapThread, &MO);
 
