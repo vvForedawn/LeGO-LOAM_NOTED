@@ -122,10 +122,26 @@ FeatureAssociation()构造函数的内容如下：
 6. **runFeatureAssociation**，该类最主要的函数，步骤如下：
 
    1. 如果有新数据进来则执行，否则不执行任何操作；根据时间差以及标志位
+
    2. `adjustDistortion()` 主要进行的处理是将点云数据进行坐标变换，进行插补等工作
 
       >1. 给每个点云找到对应的imu数据（时间对齐）
+      >
+      >   * 不能进行线性插值情况：最晚的IMU数据都比点云数据早
+      >
+      >   * 可以进行插值：IMU数据比点云晚
+      >
+      >2. 更新i=0时刻PRY角，0时刻为该片点云第一个点
+      >3. 速度投影到初始i=0时刻，`VeloToStartIMU`没看懂。
+      >4. 将点的坐标变换到初始i=0时刻，`TransformToStartIMU`没看懂，更新point点坐标。
 
+   3. `calculateSmoothness`进行光滑性计算，得到一个平滑过的cloudSmoothness，其中的range为该点周边10个点的中和值的平方。
+
+   4. `markOccludedPoints`标记阻塞点，指在点云中可能出现的互相遮挡的情况（过近的点），将距离变化的点cloudNeighborPicked标记为1，并将周围的5个点也标记为1
+
+   5. `extractFeatures`特征抽取，保存到不同的队列是不同类型的点云，进行了标记的工作，这一步中减少了点云数量，使计算量减少。
+
+   6. `publishCloud`发布各种类型的点云。
 
 
 
