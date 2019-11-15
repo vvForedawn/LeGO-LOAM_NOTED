@@ -6,9 +6,19 @@
 
 第二个是将分割的点云发送到特征提取模块。第三个，激光雷达里程计使用从上一个模块中提取的特征找到在连续扫描过程中机器人位姿的转换，这些信息最终用于激光雷达用点云方式的建图中。第五个模块是融合激光雷达里程测量和建图的姿态估计结果，并输出最终的姿态估计。
 
+
+
+### 优点：
+1）LeGO-LOAM是轻量级的，因为可以在嵌入式系统上实现实时姿态估计和建图。 
+2）去除失真数据，在地面分离之后，执行点云分割以丢弃可能表示不可靠特征的点。
+3）LeGO-LOAM引入地面优化，因为我们引入了两步优化姿势估计。从地面提取的平面特征用于在第一步中获得 [tz,θroll,θpitch][tz,θroll,θpitch] 。在第二步中，通过匹配从分段点云提取的边缘特征来获得其余部分的变换[tx,ty,θyaw][tx,ty,θyaw] 。
+4）集成了回环检测以校正运动估计漂移的能力。
+
+![1573717073849](/home/foredawn/git/LeGO-LOAM_NOTED/特征提取过程.png)
+
 ### 1、点云分割
 
-目的：将单个扫描的点云投影到一个固定范围的图像上进行分割。
+目的：将单个扫描的点云投影到一个固定范围的图像上进行分割，用于滤除噪声，同时减少点云数目。
 
 1. 创建点云及初始化一系列参数
 
@@ -80,9 +90,9 @@
         >
     5. `publishCloud()` 发布各类点云的内容
     6. `resetParameters()` 重置参数内容
-### 2、特征关联
+### 2、特征提取
 
-目的：进行特征关联的过程。
+目的：提取特征平面和特征边 。
 
 FeatureAssociation()构造函数的内容如下：
 
@@ -104,14 +114,14 @@ FeatureAssociation()构造函数的内容如下：
 
 3. 初始化各类参数
 
-4. > 第一个回调函数`laserCloudHandler`存储segmentedCloud点云数据的时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
+4. > 第一个回调函数`laserCloudHandler()`存储segmentedCloud点云数据的时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
    >
-   > 第二个回调函数`laserCloudInfoHandler`存储segmentedCloudInfo点云数据时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
+   > 第二个回调函数`laserCloudInfoHandler()`存储segmentedCloudInfo点云数据时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
    >
-   > 第三个回调函数`outlierCloudHandler`存储outlierCloud点云数据时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
+   > 第三个回调函数`outlierCloudHandler()`存储outlierCloud点云数据时间戳，将点云数据从ROS定义的格式转化到pcl的格式。
    >
 
-5. 第四个回调函数`imuHandler`，与LOAM中的一样，函数实现如下：
+5. 第四个回调函数`imuHandler()`，与LOAM中的一样，函数实现如下：
 
    1. 通过接收到的imuIn里面的四元素得到roll,pitch,yaw三个角；
    2. 对加速度进行坐标变换(`关于坐标变换这一块不够清楚`)；
@@ -135,13 +145,18 @@ FeatureAssociation()构造函数的内容如下：
       >3. 速度投影到初始i=0时刻，`VeloToStartIMU`没看懂。
       >4. 将点的坐标变换到初始i=0时刻，`TransformToStartIMU`没看懂，更新point点坐标。
 
-   3. `calculateSmoothness`进行光滑性计算，得到一个平滑过的cloudSmoothness，其中的range为该点周边10个点的中和值的平方。
+   3. `calculateSmoothness()`进行光滑性计算，得到一个平滑过的`cloudSmoothness`，其中的range为该点周边10个点的中和值的平方。
 
-   4. `markOccludedPoints`标记阻塞点，指在点云中可能出现的互相遮挡的情况（过近的点），将距离变化的点cloudNeighborPicked标记为1，并将周围的5个点也标记为1
+   4. `markOccludedPoints()`标记阻塞点，指在点云中可能出现的互相遮挡的情况（过近的点），将距离变化的点cloudNeighborPicked标记为1，并将周围的5个点也标记为1。
 
-   5. `extractFeatures`特征抽取，保存到不同的队列是不同类型的点云，进行了标记的工作，这一步中减少了点云数量，使计算量减少。
+   5. `extractFeatures()`特征抽取，保存到不同的队列是不同类型的点云，进行了标记的工作，这一步中减少了点云数量，使计算量减少
 
-   6. `publishCloud`发布各种类型的点云。
+      > 1. `cloudLabel`初始化为0，`surfPointsFlat`标记为-1，`surfPointsLessFlatScan`为不大于0的标签`cornerPointsSharp`标记为2，`cornerPointsLessSharp`标记为1
+      > 2. `cornerPointsSharp`（只保存两个角点）以及`cronerPointsLessSharp`保存了全部角点，被选过的角点周边10个点，如果靠的过近，邻接点`cloudNeighborPicked`标记为1，表示被选过。
+      > 3. 从地面中的选出平面点，只选出最平的4个点，存入`surfPointsFlat`，且判断各点相邻10个点的距离信息，近则将邻接点`cloudNeighborPicked`标记为1。
+      > 4. 将所有的平面点放入`surfPointsLessFlatScan`，并进行下采样。
+
+   6. `publishCloud()`发布各种类型的点云，特征提取所产生的。
 
 
 
